@@ -19,9 +19,16 @@ var current bitboard
 const X = 0
 const O = 1
 const NumGames = 2
+const ALL = 0b111111111
 
-var shift[2] int = [2]int{1, 10}
-var mask[2] bitboard  = [2]bitboard{0b111111111<<shift[X], 0b111111111<<shift[O]}
+// Old FORTRAN trick
+func other(player int) int {
+	return 1 - player
+}
+
+var shift[2] int = [2]int{0, 16}
+var mask[2] bitboard  = [2]bitboard{ALL<<shift[X], ALL<<shift[O]}
+var name[2] string = [2]string{"X", "O"}
 
 func main() {
 	msg("Firing up...")
@@ -29,10 +36,11 @@ func main() {
 	for i := 0; i < NumGames; i++ {
 		current = 0
 
-		for player := X; !isFinal(current); player = 1-player {
+		for player := X; !isFinal(current); player = other(player) {
 			move, estimate := chooseMove(player)
 			updateWeights(move, estimate)
 			current = current|move
+			display()
 		}
 	}
 
@@ -47,34 +55,35 @@ var unshiftedWinningPositions = []bitboard {
 
 // Return true if no more plays are available or if there is a winner
 func isFinal(position bitboard) bool {
-	filledSquares := (current&mask[O]>>shift[O]) | (current&mask[X]>>shift[X])
-	if filledSquares == 0b111111111 {
+	filledSquares := (current&mask[O])>>shift[O] | (current&mask[X])>>shift[X]
+	if filledSquares == ALL {
+		msg("draw")
 		return true // all squares filled - draw
 	}
 	for _, winner := range(unshiftedWinningPositions) {
-		if position&mask[X] == winner<<shift[X] || position&mask[O] == winner<<shift[O] {
+		if position&mask[X] == winner<<shift[X] {
+			msg("X win")
+			return true
+		}
+		if position&mask[O] == winner<<shift[O] {
+			msg("O win")
 			return true
 		}
 	}
 	return false
 }
 
-// Return true if the move is not on top of a previous move
-func isLegal(move bitboard) bool {
-	filledSquares := (current&mask[O]>>shift[O]) | (current&mask[X]>>shift[X])
-	return move&filledSquares == 0
-}
-
 // Choose the next move. This function only chooses legal moves.
 func chooseMove(player int) (bitboard, float64) {
 	var result bitboard
-	var candidate bitboard
 	max := -100.0
 
 	for i := 0; i < 9; i++ {
-		candidate = 1<<i
-		if isLegal(candidate) {
-			value := eval(current|candidate)
+		candidate := bitboard((1<<i)<<shift[player])
+		blocker := bitboard((1<<i)<<shift[other(player)])
+		value := 0.0
+		if candidate&current == 0 && blocker&current == 0 { // legal
+			value = eval(current|candidate)
 			if value > max {
 				result = candidate
 				max = value
@@ -97,12 +106,31 @@ func eval(position bitboard) float64 {
 
 func msg(format string, a ...any) {
 	if len(format) == 0 {
-		msg("internal error: msg() called with empy message")
+		fmt.Fprintln(os.Stderr, "")
 		return
 	}
 	if format[len(format)-1] != '\n' {
 		format += "\n"
 	}
     fmt.Fprintf(os.Stderr, format, a...)
+}
+
+func mark(pos int) string {
+	if current&(1<<(shift[X]+pos)) != 0 {
+		return "X"
+	}
+	if current&(1<<(shift[O]+pos)) != 0 {
+		return "O"
+	}
+	return " "
+}
+
+func display() {
+	msg(" %s | %s | %s ", mark(0), mark(1), mark(2))
+	msg("------------")
+	msg(" %s | %s | %s ", mark(3), mark(4), mark(5))
+	msg("------------")
+	msg(" %s | %s | %s ", mark(6), mark(7), mark(8))
+	msg("")
 }
 
