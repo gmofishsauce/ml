@@ -4,6 +4,8 @@ package main
 
 import (
 	"fmt"
+	"gonum.org/v1/gonum/mat"
+	"math"
 	"math/rand"
 	"os"
 )
@@ -58,6 +60,8 @@ func main() {
 			updateWeights(move, estimate)
 			current = current|move
 		}
+		predict(current)
+		os.Exit(5)
 		results[status(current)]++
 	}
 
@@ -100,6 +104,62 @@ func status(position bitboard) int {
 	}
 
 	return 0
+}
+
+// NN engine
+
+const InputSize = 18	// bitboard with O bits >> 7
+const HiddenSize = 5	// hyperparameter
+const OutputSize = 9	// what square to play in
+
+var weightsInputHidden *mat.Dense
+var weightsHiddenOutput *mat.Dense
+
+func init() {
+	data := make([]float64, InputSize*HiddenSize)
+	for i := range data {
+		data[i] = 0.1*rand.Float64()
+	}
+	weightsInputHidden = mat.NewDense(InputSize, HiddenSize, data)
+
+	data = make([]float64, HiddenSize*OutputSize)
+	for i := range data {
+		data[i] = 0.1*rand.Float64()
+	}
+	weightsHiddenOutput = mat.NewDense(HiddenSize, OutputSize, data)
+}
+
+// func (m *Dense) Apply(fn func(i, j int, v float64) float64, a Matrix)
+func sigmoid(output *mat.Dense, input *mat.Dense) {
+	output.Apply(func(i, j int, v float64) float64 {
+		return 1.0 / (1.0 + math.Exp(v))
+	}, input)
+}
+
+func predict(current bitboard) float64 {
+	packed := (current&mask[X]) | (current&mask[O])>>7
+	var input *mat.Dense = mat.NewDense(1, InputSize, nil)
+	for i := 0; i < InputSize; i++ {
+		if packed&(1<<i) != 0 {
+			input.Set(0, i, 1.0)
+		}
+	}
+
+	var hiddenLayerInput mat.Dense
+	msgM("weightsInputHidden", "%2.3f", weightsInputHidden)
+	msgM("input", "%2.3f", input)
+	hiddenLayerInput.Mul(input, weightsInputHidden)
+	msgM("hiddenLayerInput", "%2.3f", &hiddenLayerInput)
+	/*
+	sigmoid(hiddenLayerOutput, hiddenLayerInput)
+	msgM("hiddenLayerOutput", "%2.3f", hiddenLayerOutput)
+
+	var outputLayerInput, predictedOutput *mat.Dense
+	outputLayerInput.Mul(hiddenLayerOutput, weightsHiddenOutput)
+	sigmoid(predictedOutput, outputLayerInput)
+	msgM("predictedOutput", "%2.3f", predictedOutput)
+*/
+	return 0.0
 }
 
 // Choose the next move. This function only chooses legal moves.
@@ -148,6 +208,18 @@ func msg(format string, a ...any) {
 		format += "\n"
 	}
     fmt.Fprintf(os.Stderr, format, a...)
+}
+
+// print a matrix m with the given label and per-element format
+func msgM(label string, elementFormat string, m mat.Matrix) {
+	if len(elementFormat) == 0 {
+		elementFormat = "%f"
+	}
+	if len(label) == 0 || label[len(label)-1] != '\n' {
+		label += "\n"
+	}
+	fa := mat.Formatted(m)
+	msg(label+elementFormat, fa)
 }
 
 func mark(c bitboard, pos int) string {
