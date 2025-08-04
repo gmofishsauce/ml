@@ -28,14 +28,24 @@ func other(player int) int {
 	return 1 - player
 }
 
+const (
+	StatusRunning int = iota
+	StatusXWin
+	StatusOWin
+	StatusDraw
+)
+
 var shift[2] int = [2]int{0, 16}
 var mask[2] bitboard  = [2]bitboard{ALL<<shift[X], ALL<<shift[O]}
 var name[2] string = [2]string{"X", "O"}
-var initialPrediction[2] float64 = [2]float64{-10e37, 10e37}
+
+var nn *NN = makeNN(18, 6, 9)
 
 var verbose bool = false
 var quiet bool = false
 var progname string
+
+var ExploreParam = 0.3 // TODO epsilon and its shrink rate
 
 func main() {
 	progname = os.Args[0]
@@ -49,24 +59,35 @@ func main() {
 
 	msg("Firing up...")
 
-	// in progress, X win, O win, draw:
 	var results []int = []int{0, 0, 0, 0}
+	Q_learn(results)
+	msg("X won %d times, O won %d times, and there were %d draws\n",
+		results[1], results[2], results[3])
 
+	msg("done")
+}
+
+func Q_learn(results []int) {
 	for i := 0; i < NumGames; i++ {
-		var current bitboard = 0										// "initialize S"
+		var current bitboard = 0                                        // "initialize S"
 
 		for player := X; !isFinal(current); player = other(player) {
-			move, estimate := chooseMove(current, player)				// "choose A from S"
-			current = current|move										// "take action A, observe R, S'"
-			reward = rewardFor(position)
-			updateWeights(move, estimate)
+			position := current
+			move, QofSgivenA := choose(current, player)                 // "choose A from S"
+			current = current|move                                      // "take action A, observe R, S'"
+			r := reward(current, player)                                // current is now Q(S',A)
+			// LR is learning rate, gamma is discount rate, Q(S, A) is saved above
+			// max_a(Q(S', a)) is the best result for the ***OTHER*** player
+			// Q(S, A) := Q(S, A) + LR * [ r + gamma * (max_a(Q(S', a))) - Q(S, A) ]
+
+			update(position, r, QofSgivenA)
 		}
 		results[status(current)]++
 	}
+}
 
-	msg("X won %d times, O won %d times, and there were %d draws\n",
-		results[1], results[2], results[3])
-	msg("done")
+func update(position bitboard, r float64, QofSgivenA float64) {
+	msg("%x %f %f", position, r, QofSgivenA)
 }
 
 var unshiftedWinningPositions = []bitboard {
@@ -81,36 +102,48 @@ func isFinal(position bitboard) bool {
 	return status(position) > 0
 }
 
-// Return the state: 0 for in progress, 1 for X win, 2 for O win, 3 for draw.
 func status(position bitboard) int {
 	for _, winner := range(unshiftedWinningPositions) {
 		winmask := winner<<shift[X]
 		if position&winmask == winmask {
 			//msg("X win")
-			return 1
+			return StatusXWin
 		}
 		winmask = winner<<shift[O]
 		if position&winmask == winmask {
 			//msg("O win")
-			return 2
+			return StatusOWin
 		}
 	}
 
 	filledSquares := (position&mask[O])>>shift[O] | (position&mask[X])>>shift[X]
 	if filledSquares == ALL {
 		//msg("draw")
-		return 3
+		return StatusDraw
 	}
 
-	return 0
+	return StatusRunning
 }
 
-func rewardFor(position bitboard) float64 {
+// TODO I don't understand what to use for rewards. It seems like (1, 0, -1) make
+// sense for {X win, draw, O win}, but then what to do for "in progress"? If it's 0,
+// then "in progress" gets rewarded the same as achieving a draw, which doesn't seem
+// right because a draw is better than "in progress which carries a risk of loss.
+
+func reward(position bitboard, player int) float64 {
+	s := status(position)
+	if s == StatusRunning || s == StatusDraw {
+		return 0
+	}
+	if s == StatusXWin {
+		return 1
+	}
+	return -1 // O win
 }
 
 // Choose the next move. This function only chooses legal moves.
 // TODO epsilon
-func chooseMove(current bitboard, player int) (bitboard, float64) {
+func choose(current bitboard, player int) (bitboard, float64) {
 	var result bitboard
 	max := -100.0
 
@@ -133,7 +166,17 @@ func chooseMove(current bitboard, player int) (bitboard, float64) {
 }
 
 func eval(position bitboard, player int) float64 {
-	return value(position, player)
+	// prepare the input, an N-hot vector with 1.0 where there is either
+	// an X or an O and 0.0 otherwise
+	packed := (position&mask[X]) | (position&mask[O])>>7
+	var input []float64 = make([]float64, nn.InputSize)
+	for i := 0; i < nn.InputSize; i++ {
+		if packed&(1<<i) != 0 {
+			input[i] = 1.0
+		}
+	}
+
+	return nn.Predict(input, (player == X))
 }
 
 // IO functions to end

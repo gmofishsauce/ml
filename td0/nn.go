@@ -10,31 +10,39 @@ import (
 
 // NN engine
 
-const InputSize = 18	// bitboard with O bits >> 7
-const HiddenSize = 5	// hyperparameter
-const OutputSize = 9	// what square to play in
+type NN struct {
+	InputSize int
+	HiddenSize int
+	OutputSize int
 
-var LearningRate = 0.001
-var ExploreParam = 0.3
+	learningRate float64
 
-var weightsInputHidden *mat.Dense
-var weightsHiddenOutput *mat.Dense
-
-func init() {
-	data := make([]float64, InputSize*HiddenSize)
-	for i := range data {
-		data[i] = 0.1*rand.Float64()
-	}
-	weightsInputHidden = mat.NewDense(InputSize, HiddenSize, data)
-
-	data = make([]float64, HiddenSize*OutputSize)
-	for i := range data {
-		data[i] = 0.1*rand.Float64()
-	}
-	weightsHiddenOutput = mat.NewDense(HiddenSize, OutputSize, data)
+	weightsInputHidden *mat.Dense
+	weightsHiddenOutput *mat.Dense
 }
 
-// func (m *Dense) Apply(fn func(i, j int, v float64) float64, a Matrix)
+func makeNN(inputSize int, hiddenSize int, outputSize int) *NN {
+	nn := &NN{}
+	nn.InputSize = inputSize
+	nn.HiddenSize = hiddenSize
+	nn.OutputSize = outputSize
+	nn.learningRate = 0.001
+
+	data := make([]float64, nn.InputSize*nn.HiddenSize)
+	for i := range data {
+		data[i] = 0.1*rand.Float64()
+	}
+	nn.weightsInputHidden = mat.NewDense(nn.InputSize, nn.HiddenSize, data)
+
+	data = make([]float64, nn.HiddenSize*nn.OutputSize)
+	for i := range data {
+		data[i] = 0.1*rand.Float64()
+	}
+	nn.weightsHiddenOutput = mat.NewDense(nn.HiddenSize, nn.OutputSize, data)
+
+	return nn
+}
+
 func sigmoid(output *mat.Dense, input *mat.Dense) {
 	output.Apply(func(i, j int, v float64) float64 {
 		return 1.0 / (1.0 + math.Exp(v))
@@ -47,38 +55,35 @@ func sigmoidDerivative(output *mat.Dense, input *mat.Dense) {
 	}, input)
 }
 
-// Compute the value of the given board position
-func value(current bitboard, player int) float64 {
-	// prepare the input, an N-hot vector with 1.0 where there is either
-	// an X or an O and 0.0 otherwise
-	packed := (current&mask[X]) | (current&mask[O])>>7
-	var input *mat.Dense = mat.NewDense(1, InputSize, nil)
-	for i := 0; i < InputSize; i++ {
-		if packed&(1<<i) != 0 {
-			input.Set(0, i, 1.0)
-		}
-	}
-
+// Evaluate the network with the given vector of inputs.
+// Return the max or min value depending on the boolean argument.
+// The input vector must have the dimension InputSize
+func (nn *NN) Predict(in []float64, getMax bool) float64 {
 	var hiddenLayerInput mat.Dense
-	hiddenLayerInput.Mul(input, weightsInputHidden)
 	var hiddenLayerOutput mat.Dense
+
+	var input *mat.Dense = mat.NewDense(1, nn.InputSize, in)
+	hiddenLayerInput.Mul(input, nn.weightsInputHidden)
 	sigmoid(&hiddenLayerOutput, &hiddenLayerInput)
 
 	var outputLayerInput mat.Dense
-	outputLayerInput.Mul(&hiddenLayerOutput, weightsHiddenOutput)
 	var predictedOutput mat.Dense
+
+	outputLayerInput.Mul(&hiddenLayerOutput, nn.weightsHiddenOutput)
 	sigmoid(&predictedOutput, &outputLayerInput)
 
-	// Now return the max (if X player) or min (if O player)
-	result := initialPrediction[player]
-	if player == X {
-		for i := 0; i < OutputSize; i++ {
+	// Now return the max or min of the output vector
+	var result float64
+	if getMax {
+		result = -1e37
+		for i := 0; i < nn.OutputSize; i++ {
 			if predictedOutput.At(0, i) > result {
 				result = predictedOutput.At(0, i)
 			}
 		}
 	} else {
-		for i := 0; i < OutputSize; i++ {
+		result = 1e37
+		for i := 0; i < nn.OutputSize; i++ {
 			if predictedOutput.At(0, i) < result {
 				result = predictedOutput.At(0, i)		
 			}
@@ -87,7 +92,7 @@ func value(current bitboard, player int) float64 {
 	return result
 }
 
-func updateWeights(next bitboard, vs float64) {
+func Learn(next bitboard, vs float64) {
 	return
 }
 
