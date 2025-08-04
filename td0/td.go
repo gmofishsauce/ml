@@ -31,6 +31,7 @@ func other(player int) int {
 var shift[2] int = [2]int{0, 16}
 var mask[2] bitboard  = [2]bitboard{ALL<<shift[X], ALL<<shift[O]}
 var name[2] string = [2]string{"X", "O"}
+var initialPrediction[2] float64 = [2]float64{-10e37, 10e37}
 
 var verbose bool = false
 var quiet bool = false
@@ -48,15 +49,17 @@ func main() {
 
 	msg("Firing up...")
 
+	// in progress, X win, O win, draw:
 	var results []int = []int{0, 0, 0, 0}
 
 	for i := 0; i < NumGames; i++ {
-		var current bitboard = 0
+		var current bitboard = 0										// "initialize S"
 
 		for player := X; !isFinal(current); player = other(player) {
-			move, estimate := chooseMove(current, player)
+			move, estimate := chooseMove(current, player)				// "choose A from S"
+			current = current|move										// "take action A, observe R, S'"
+			reward = rewardFor(position)
 			updateWeights(move, estimate)
-			current = current|move
 		}
 		results[status(current)]++
 	}
@@ -102,7 +105,11 @@ func status(position bitboard) int {
 	return 0
 }
 
+func rewardFor(position bitboard) float64 {
+}
+
 // Choose the next move. This function only chooses legal moves.
+// TODO epsilon
 func chooseMove(current bitboard, player int) (bitboard, float64) {
 	var result bitboard
 	max := -100.0
@@ -112,7 +119,7 @@ func chooseMove(current bitboard, player int) (bitboard, float64) {
 		blocker := bitboard((1<<i)<<shift[other(player)])
 		value := 0.0
 		if candidate&current == 0 && blocker&current == 0 { // legal
-			value = eval(current|candidate)
+			value = eval(current|candidate, player)
 			if value >= max {
 				result = candidate
 				max = value
@@ -125,8 +132,8 @@ func chooseMove(current bitboard, player int) (bitboard, float64) {
 	return result, max
 }
 
-func eval(position bitboard) float64 {
-	return predict(position)
+func eval(position bitboard, player int) float64 {
+	return value(position, player)
 }
 
 // IO functions to end

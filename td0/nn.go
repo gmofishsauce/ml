@@ -41,7 +41,14 @@ func sigmoid(output *mat.Dense, input *mat.Dense) {
 	}, input)
 }
 
-func predict(current bitboard) float64 {
+func sigmoidDerivative(output *mat.Dense, input *mat.Dense) {
+	output.Apply(func(i, j int, v float64) float64 {
+        return v * (1.0 - v)
+	}, input)
+}
+
+// Compute the value of the given board position
+func value(current bitboard, player int) float64 {
 	// prepare the input, an N-hot vector with 1.0 where there is either
 	// an X or an O and 0.0 otherwise
 	packed := (current&mask[X]) | (current&mask[O])>>7
@@ -53,30 +60,31 @@ func predict(current bitboard) float64 {
 	}
 
 	var hiddenLayerInput mat.Dense
-	msgM("weightsInputHidden", "%2.3f", weightsInputHidden)
-	msgM("input", "%2.3f", input)
 	hiddenLayerInput.Mul(input, weightsInputHidden)
-	msgM("hiddenLayerInput", "%2.3f", &hiddenLayerInput)
-
 	var hiddenLayerOutput mat.Dense
 	sigmoid(&hiddenLayerOutput, &hiddenLayerInput)
-	msgM("hiddenLayerOutput", "%2.3f", &hiddenLayerOutput)
 
 	var outputLayerInput mat.Dense
 	outputLayerInput.Mul(&hiddenLayerOutput, weightsHiddenOutput)
-	msgM("outputLayerInput", "%2.3f", &outputLayerInput)
-
 	var predictedOutput mat.Dense
 	sigmoid(&predictedOutput, &outputLayerInput)
-	msgM("predictedOutput", "%2.3f", &predictedOutput)
 
-	max := 0.0
-	for i := 0; i < OutputSize; i++ {
-		if predictedOutput.At(0, i) > max {
-			max = predictedOutput.At(0, i)
+	// Now return the max (if X player) or min (if O player)
+	result := initialPrediction[player]
+	if player == X {
+		for i := 0; i < OutputSize; i++ {
+			if predictedOutput.At(0, i) > result {
+				result = predictedOutput.At(0, i)
+			}
+		}
+	} else {
+		for i := 0; i < OutputSize; i++ {
+			if predictedOutput.At(0, i) < result {
+				result = predictedOutput.At(0, i)		
+			}
 		}
 	}
-	return max
+	return result
 }
 
 func updateWeights(next bitboard, vs float64) {
