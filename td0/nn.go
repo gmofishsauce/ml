@@ -92,7 +92,15 @@ func (nn *NN) Predict(in []float64, getMax bool) float64 {
 	return result
 }
 
-func Learn(next bitboard, vs float64) {
-	return
+/*
+func (nn *NN) Learn(in []float64, getMax bool, label float64) {
+	predicted_output := nn.Predict(in, getMax)
+	output_error := label - predicted_output
+	output_delta := output_error * self.sigmoid_derivative(predicted_output)
+}
+*/
+
+// XXX implement training
+func (nn *NN) Learn() {
 }
 

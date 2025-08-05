@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"gonum.org/v1/gonum/mat"
+	"math/rand"
 	"os"
 )
 
@@ -39,6 +40,7 @@ var shift[2] int = [2]int{0, 16}
 var mask[2] bitboard  = [2]bitboard{ALL<<shift[X], ALL<<shift[O]}
 var name[2] string = [2]string{"X", "O"}
 
+// XXX need to move to a 1-output NN
 var nn *NN = makeNN(18, 6, 9)
 
 var verbose bool = false
@@ -67,27 +69,43 @@ func main() {
 	msg("done")
 }
 
+var epsilon float64 // XXX centralize hyperparameters
+var epsilon_decay float64
+
 func Q_learn(results []int) {
+	epsilon = 0.5 // not very large
+	epsilon_decay = 0.75 // very rapid
+
 	for i := 0; i < NumGames; i++ {
 		var current bitboard = 0                                        // "initialize S"
 
 		for player := X; !isFinal(current); player = other(player) {
+			// We just switched (or initialized) the players, so the quality of the current
+			// position is based on the other player's move choice.
 			position := current
-			move, QofSgivenA := choose(current, player)                 // "choose A from S"
-			current = current|move                                      // "take action A, observe R, S'"
-			r := reward(current, player)                                // current is now Q(S',A)
-			// LR is learning rate, gamma is discount rate, Q(S, A) is saved above
-			// max_a(Q(S', a)) is the best result for the ***OTHER*** player
-			// Q(S, A) := Q(S, A) + LR * [ r + gamma * (max_a(Q(S', a))) - Q(S, A) ]
+			qOfS := QofS(position, other(player))
+			action, _ := choose(current, player, epsilon)               // "choose A from S"
+			current = current|action                                    // "take action A, observe R, S'"
+			r := reward(current, player)
 
-			update(position, r, QofSgivenA)
+			// LR is learning rate, gamma is discount rate, Q(S, A) is saved above
+			// max_a(Q(S', a)) is found by choose() with epsilon of 0.0
+			// _, maxQ := choose(current, player, 0.0)
+			// Q(S, A) := Q(S, A) + LR * [ r + gamma * (max_a(Q(S', a))) - Q(S, A) ]
+			maxQ := 0.0
+
+			update(position, qOfS, r, maxQ)
 		}
 		results[status(current)]++
+		if epsilon > 0.001 {
+			epsilon *= epsilon_decay
+		}
 	}
 }
 
-func update(position bitboard, r float64, QofSgivenA float64) {
-	msg("%x %f %f", position, r, QofSgivenA)
+func update(position bitboard, qOfS float64, r float64, QofSgivenA float64) {
+	msg("%x %f %f %f", position, qOfS, r, QofSgivenA)
+	nn.Learn()
 }
 
 var unshiftedWinningPositions = []bitboard {
@@ -133,39 +151,75 @@ func status(position bitboard) int {
 func reward(position bitboard, player int) float64 {
 	s := status(position)
 	if s == StatusRunning || s == StatusDraw {
-		return 0
+		return 0.5
 	}
 	if s == StatusXWin {
 		return 1
 	}
-	return -1 // O win
+	return 0 // O win
 }
 
-// Choose the next move. This function only chooses legal moves.
-// TODO epsilon
-func choose(current bitboard, player int) (bitboard, float64) {
-	var result bitboard
-	max := -100.0
+func getLegalMoves(current bitboard) []int {
+	result := []int{}
 
+	packed := (current&mask[X])>>shift[X] | (current&mask[O])>>shift[O]
+	for i := 0; i < 9; i++ {
+		if packed&(1<<i) == 0 {
+			result = append(result, i)
+		}
+	}
+	return result
+}
+
+func getRandomMove(current bitboard, player int) bitboard {
+	choices := getLegalMoves(current)
+	return (1<<choices[rand.Intn(len(choices))]) << shift[player]
+}
+
+// TODO XXX needs to return 0.0 and an empty bitboard when isFinal() is true.
+
+// Choose the next move. This function only chooses legal moves. For the X player,
+// we choose the maximum from the N QofS values. For the O player, we choose the
+// minimum. Inside the function estimator (neural net), the same thing happens for
+// each evaluation.
+func choose(current bitboard, player int, epsilon float64) (bitboard, float64) {
+	var minmax float64
+
+	if rand.Float64() < epsilon {
+		move := getRandomMove(current, player)
+		return move, QofS(move, player)
+	}
+
+	if player == X {
+		minmax = -1e37
+	} else {
+		minmax = 1e37
+	}
+
+	var move bitboard
 	for i := 0; i < 9; i++ {
 		candidate := bitboard((1<<i)<<shift[player])
 		blocker := bitboard((1<<i)<<shift[other(player)])
 		value := 0.0
 		if candidate&current == 0 && blocker&current == 0 { // legal
-			value = eval(current|candidate, player)
-			if value >= max {
-				result = candidate
-				max = value
+			value = QofS(current|candidate, player)
+			if player == X && value > minmax {
+				move = candidate
+				minmax = value
+			} else if player == O && value < minmax {
+				move = candidate
+				minmax = value
 			}
 		}
 	}
-	if result == 0 {
+	if move == 0 {
 		panic("no move selection")
 	}
-	return result, max
+	return move, minmax
 }
 
-func eval(position bitboard, player int) float64 {
+// Return the estimated value of the position bitboard for the player X or O.
+func QofS(position bitboard, player int) float64 {
 	// prepare the input, an N-hot vector with 1.0 where there is either
 	// an X or an O and 0.0 otherwise
 	packed := (position&mask[X]) | (position&mask[O])>>7
