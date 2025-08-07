@@ -19,6 +19,7 @@ const NumGames = 10
 // sort "one hot": bits 0..8 are X moves, 16..24 are
 // O moves, and neither bit set means an empty square.
 type bitboard uint32
+const NumSquares = 9
 
 const X = 0
 const O = 1
@@ -40,26 +41,33 @@ var shift[2] int = [2]int{0, 16}
 var mask[2] bitboard  = [2]bitboard{ALL<<shift[X], ALL<<shift[O]}
 var name[2] string = [2]string{"X", "O"}
 
-// XXX need to move to a 1-output NN
-var nn *NN = makeNN(18, 6, 9)
+// Hyperparameters
+const InputSize = 18
+const HiddenSize = 18
+var epsilon float64 = 0.5 // not very large
+var epsilon_decay float64 = 0.75 // very rapid
+var gamma float64 = 0.99
+
+var nn *NN = makeNN(18, HiddenSize, 1)
 
 var verbose bool = false
 var quiet bool = false
 var progname string
 
-var ExploreParam = 0.3 // TODO epsilon and its shrink rate
-
 func main() {
 	progname = os.Args[0]
+	msg("Firing up...")
+
 	for i := 1; i < len(os.Args); i++ {
 		if os.Args[i] == "-v" {
 			verbose = true
 		} else if os.Args[i] == "-q" {
 			quiet = true
+		} else {
+			fatal(fmt.Sprintf("usage: %s [-v|-q]", progname))
+			// does not return
 		}
 	}
-
-	msg("Firing up...")
 
 	var results []int = []int{0, 0, 0, 0}
 	Q_learn(results)
@@ -69,13 +77,7 @@ func main() {
 	msg("done")
 }
 
-var epsilon float64 // XXX centralize hyperparameters
-var epsilon_decay float64
-
 func Q_learn(results []int) {
-	epsilon = 0.5 // not very large
-	epsilon_decay = 0.75 // very rapid
-
 	for i := 0; i < NumGames; i++ {
 		var current bitboard = 0                                        // "initialize S"
 
@@ -92,20 +94,19 @@ func Q_learn(results []int) {
 			// max_a(Q(S', a)) is found by choose() with epsilon of 0.0
 			// _, maxQ := choose(current, player, 0.0)
 			// Q(S, A) := Q(S, A) + LR * [ r + gamma * (max_a(Q(S', a))) - Q(S, A) ]
-			maxQ := 0.0
+			// LR is in the NN and the Q(S, A) part is built into the NN (I think...)
 
-			update(position, qOfS, r, maxQ)
+			_, maxQ := choose(current, other(player), 0.0)
+			targetQ := make([]float64, 1)
+			targetQ[0] = r + gamma * (1 - maxQ) - qOfS
+			nn.Learn(bitboardToFloatVec(position), targetQ)
 		}
+
 		results[status(current)]++
 		if epsilon > 0.001 {
 			epsilon *= epsilon_decay
 		}
 	}
-}
-
-func update(position bitboard, qOfS float64, r float64, QofSgivenA float64) {
-	msg("%x %f %f %f", position, qOfS, r, QofSgivenA)
-	nn.Learn()
 }
 
 var unshiftedWinningPositions = []bitboard {
@@ -185,6 +186,9 @@ func getRandomMove(current bitboard, player int) bitboard {
 func choose(current bitboard, player int, epsilon float64) (bitboard, float64) {
 	var minmax float64
 
+	if isFinal(current) {
+		return 0, 0.5
+	}
 	if rand.Float64() < epsilon {
 		move := getRandomMove(current, player)
 		return move, QofS(move, player)
@@ -218,22 +222,44 @@ func choose(current bitboard, player int, epsilon float64) (bitboard, float64) {
 	return move, minmax
 }
 
-// Return the estimated value of the position bitboard for the player X or O.
-func QofS(position bitboard, player int) float64 {
+func bitboardToFloatVec(position bitboard) []float64 {
 	// prepare the input, an N-hot vector with 1.0 where there is either
-	// an X or an O and 0.0 otherwise
+	// an X or an O and 0.0 otherwise.
 	packed := (position&mask[X]) | (position&mask[O])>>7
-	var input []float64 = make([]float64, nn.InputSize)
-	for i := 0; i < nn.InputSize; i++ {
+	var result []float64 = make([]float64, 2*NumSquares)
+	for i := 0; i < 2*NumSquares; i++ {
 		if packed&(1<<i) != 0 {
-			input[i] = 1.0
+			result[i] = 1.0
 		}
 	}
+	return result
+}
 
-	return nn.Predict(input, (player == X))
+// Return the estimated value of the position bitboard for the player X or O.
+func QofS(position bitboard, player int) float64 {
+	input := bitboardToFloatVec(position)
+	result := nn.Predict(input)
+	if len(result) != 1 {
+		panic(fmt.Sprintf("QofS(): expected result vector of 1 from NN, got len %d\n", len(result)))
+	}
+	return result[0]
 }
 
 // IO functions to end
+
+func fatal(format string, a ...any) {
+	quiet = false
+	if len(format) == 0 {
+		panic("fatal() called with no message")
+	}
+	//msg(format, a) does not work. Why not?
+	format = progname + ": " + format
+	if format[len(format)-1] != '\n' {
+		format += "\n"
+	}
+    fmt.Fprintf(os.Stderr, format, a...)
+	os.Exit(1)
+}
 
 func msg(format string, a ...any) {
 	if quiet {

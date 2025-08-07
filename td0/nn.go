@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"gonum.org/v1/gonum/mat"
 	"math"
 	"math/rand"
@@ -43,64 +44,106 @@ func makeNN(inputSize int, hiddenSize int, outputSize int) *NN {
 	return nn
 }
 
-func sigmoid(output *mat.Dense, input *mat.Dense) {
-	output.Apply(func(i, j int, v float64) float64 {
+// Return a new mat.Dense containing sigmoid(argument)
+func sigmoid(input *mat.Dense) *mat.Dense {
+	var result mat.Dense
+	result.Apply(func(i, j int, v float64) float64 {
 		return 1.0 / (1.0 + math.Exp(v))
 	}, input)
+	return &result
 }
 
-func sigmoidDerivative(output *mat.Dense, input *mat.Dense) {
-	output.Apply(func(i, j int, v float64) float64 {
+// Return a new mat.Dense containing sigmoid'(argument)
+func sigmoidDerivative(input *mat.Dense) *mat.Dense {
+	var result mat.Dense
+	result.Apply(func(i, j int, v float64) float64 {
         return v * (1.0 - v)
 	}, input)
+	return &result
+}
+
+// Return a new mat.Dense that is the elementwise product
+func mulScalar(s float64, m *mat.Dense) *mat.Dense {
+	var result mat.Dense
+	result.Apply(func(i, j int, v float64) float64 {
+		return s * m.At(i, j)
+	}, m)
+	return &result
+}
+
+// Return a new mat.Dense that is the product of the arguments
+func mult(a mat.Matrix, b mat.Matrix) *mat.Dense {
+	var result mat.Dense
+	result.Mul(a, b)
+	return &result
+}
+
+// Return a new mat.Dense that is the elementwise sum of the arguments.
+// TODO figure out if this is necessary, i.e. a.Add(a, b) really fails.
+func add(a *mat.Dense, b *mat.Dense) *mat.Dense {
+	var result mat.Dense
+	result.Add(a, b)
+	return &result
 }
 
 // Evaluate the network with the given vector of inputs.
-// Return the max or min value depending on the boolean argument.
-// The input vector must have the dimension InputSize
-func (nn *NN) Predict(in []float64, getMax bool) float64 {
-	var hiddenLayerInput mat.Dense
-	var hiddenLayerOutput mat.Dense
-
+// The input slice of float64 must have the dimension InputSize
+// The result is a slice of float64 of dimension OutputSize.
+func (nn *NN) Predict(in []float64) []float64 {
 	var input *mat.Dense = mat.NewDense(1, nn.InputSize, in)
-	hiddenLayerInput.Mul(input, nn.weightsInputHidden)
-	sigmoid(&hiddenLayerOutput, &hiddenLayerInput)
+	hiddenLayerOutput := sigmoid(mult(input, nn.weightsInputHidden))
+	predictedOutput := sigmoid(mult(hiddenLayerOutput, nn.weightsInputHidden))
 
-	var outputLayerInput mat.Dense
-	var predictedOutput mat.Dense
-
-	outputLayerInput.Mul(&hiddenLayerOutput, nn.weightsHiddenOutput)
-	sigmoid(&predictedOutput, &outputLayerInput)
-
-	// Now return the max or min of the output vector
-	var result float64
-	if getMax {
-		result = -1e37
-		for i := 0; i < nn.OutputSize; i++ {
-			if predictedOutput.At(0, i) > result {
-				result = predictedOutput.At(0, i)
-			}
-		}
-	} else {
-		result = 1e37
-		for i := 0; i < nn.OutputSize; i++ {
-			if predictedOutput.At(0, i) < result {
-				result = predictedOutput.At(0, i)		
-			}
-		}
+	r, c := predictedOutput.Dims()
+	if r != 1 || c != nn.OutputSize {
+		panic(fmt.Sprintf("Predict: result should be 1x%d, but is %dx%d\n", nn.OutputSize, r, c))
+	}
+	result := make([]float64, nn.OutputSize)
+	for j := 0; j < nn.OutputSize; j++ {
+		result[j] = predictedOutput.At(0, j)
 	}
 	return result
 }
 
 /*
-func (nn *NN) Learn(in []float64, getMax bool, label float64) {
-	predicted_output := nn.Predict(in, getMax)
-	output_error := label - predicted_output
-	output_delta := output_error * self.sigmoid_derivative(predicted_output)
-}
+    # --- Forward Propagation ---
+    layer_0 = X                   # Input layer
+    layer_1 = sigmoid(np.dot(layer_0, synapse_0)) # Hidden layer's output
+    layer_2 = sigmoid(np.dot(layer_1, synapse_1)) # Output layer's output
+
+    # --- Backpropagation ---
+    layer_2_error = y - layer_2 # mOutputError = goal - predictedOutput
+    layer_2_delta = layer_2_error * sigmoid_derivative(layer_2) # outputDelta.Mul(mOutputError, mOutput)
+    layer_1_error = layer_2_delta.dot(synapse_1.T)
+    layer_1_delta = layer_1_error * sigmoid_derivative(layer_1)
+
+    # --- Weight Update ---
+    synapse_1 += learningRate * layer_1.T.dot(layer_2_delta)
+    synapse_0 += learningRate * layer_0.T.dot(layer_1_delta)
 */
 
-// XXX implement training
-func (nn *NN) Learn() {
-}
+func (nn *NN) Learn(in []float64, goal []float64) {
+	if len(in) != nn.InputSize {
+		panic("Learn(): assertion 1")
+	}
+	var input *mat.Dense = mat.NewDense(1, len(in), in)
+	hiddenLayerOutput := sigmoid(mult(input, nn.weightsInputHidden))
+	predictedOutput := sigmoid(mult(hiddenLayerOutput, nn.weightsHiddenOutput))
 
+	_, c := predictedOutput.Dims()
+	if len(goal) != c {
+		panic("Learn(): assertion 2")
+	}
+
+	outErr := make([]float64, c)
+	for j := 0; j < c; j++ {
+		outErr[j] = goal[j] - predictedOutput.At(0, j)
+	}
+	outputError := mat.NewDense(1, c, outErr)
+	outputDelta := mult(outputError, sigmoidDerivative(predictedOutput))
+	hiddenError := mult(outputDelta, nn.weightsHiddenOutput.T())
+	hiddenDelta := mult(hiddenError, sigmoidDerivative(hiddenLayerOutput))
+
+	nn.weightsHiddenOutput = add(nn.weightsHiddenOutput, mulScalar(nn.learningRate, mult(hiddenLayerOutput.T(), outputDelta)))
+	nn.weightsInputHidden = add(nn.weightsInputHidden, mulScalar(nn.learningRate, mult(input.T(), hiddenDelta)))
+}
