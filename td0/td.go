@@ -279,7 +279,7 @@ func msg(format string, a ...any) {
 // print a matrix m with the given label and per-element format
 func msgM(label string, elementFormat string, m mat.Matrix) {
 	if len(elementFormat) == 0 {
-		elementFormat = "%f"
+		elementFormat = "%.3f"
 	}
 	if len(label) == 0 || label[len(label)-1] != '\n' {
 		label += "\n"

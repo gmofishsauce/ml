@@ -92,7 +92,7 @@ func add(a *mat.Dense, b *mat.Dense) *mat.Dense {
 func (nn *NN) Predict(in []float64) []float64 {
 	var input *mat.Dense = mat.NewDense(1, nn.InputSize, in)
 	hiddenLayerOutput := sigmoid(mult(input, nn.weightsInputHidden))
-	predictedOutput := sigmoid(mult(hiddenLayerOutput, nn.weightsInputHidden))
+	predictedOutput := sigmoid(mult(hiddenLayerOutput, nn.weightsHiddenOutput))
 
 	r, c := predictedOutput.Dims()
 	if r != 1 || c != nn.OutputSize {
@@ -141,7 +141,12 @@ func (nn *NN) Learn(in []float64, goal []float64) {
 	}
 	outputError := mat.NewDense(1, c, outErr)
 	outputDelta := mult(outputError, sigmoidDerivative(predictedOutput))
+	msgM("outputError", "", outputError)
+	msgM("outputDelta", "", outputDelta)
+
 	hiddenError := mult(outputDelta, nn.weightsHiddenOutput.T())
+	msgM("hiddenError", "", hiddenError)
+	msgM("hiddenLayerOutput", "", hiddenLayerOutput)
 	hiddenDelta := mult(hiddenError, sigmoidDerivative(hiddenLayerOutput))
 
 	nn.weightsHiddenOutput = add(nn.weightsHiddenOutput, mulScalar(nn.learningRate, mult(hiddenLayerOutput.T(), outputDelta)))
