@@ -3,9 +3,10 @@
 package main
 
 import (
-	"gonum.org/v1/gonum/mat"
 	"math"
 	"math/rand"
+
+	"gonum.org/v1/gonum/mat"
 )
 
 // NN engine
@@ -26,7 +27,7 @@ func makeNN(inputSize int, hiddenSize int, outputSize int) *NN {
 	nn.InputSize = inputSize
 	nn.HiddenSize = hiddenSize
 	nn.OutputSize = outputSize
-	nn.learningRate = 0.001
+	nn.learningRate = 0.01
 
 	data := make([]float64, nn.InputSize*nn.HiddenSize)
 	for i := range data {
@@ -45,11 +46,11 @@ func makeNN(inputSize int, hiddenSize int, outputSize int) *NN {
 
 // Return a new mat.Dense containing sigmoid(argument)
 func sigmoid(input *mat.Dense) *mat.Dense {
-	var result mat.Dense
-	result.Apply(func(i, j int, v float64) float64 {
-		return 1.0 / (1.0 + math.Exp(v))
-	}, input)
-	return &result
+       var result mat.Dense
+       result.Apply(func(i, j int, v float64) float64 {
+	       return 1.0 / (1.0 + math.Exp(-v))
+       }, input)
+       return &result
 }
 
 // Return a new mat.Dense containing sigmoid'(argument)
@@ -63,13 +64,14 @@ func sigmoidDerivative(input *mat.Dense) *mat.Dense {
 
 // Return a new mat.Dense that is the elementwise product
 func mulScalar(s float64, b *mat.Dense) *mat.Dense {
-	r, c := b.Dims()
-	for i := 0; i < r; i++ {
-		for j := 0; j < c; j++ {
-			b.Set(i, j, s*b.At(i, j))
-		}
-	}
-	return b
+       r, c := b.Dims()
+       result := mat.NewDense(r, c, nil)
+       for i := 0; i < r; i++ {
+	       for j := 0; j < c; j++ {
+		       result.Set(i, j, s*b.At(i, j))
+	       }
+       }
+       return result
 }
 
 // Return a new mat.Dense that is the elementwise product
