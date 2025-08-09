@@ -17,8 +17,8 @@ func TestSigmoid(t *testing.T) {
 	input := mat.NewDense(1, 2, []float64{0, 1})
 	result := sigmoid(input)
 	expected := []float64{
-		1.0 / (1.0 + math.Exp(0)),         // sigmoid(0) = 0.5
-		1.0 / (1.0 + math.Exp(-1)),        // sigmoid(1) ≈ 0.7310586
+		1.0 / (1.0 + math.Exp(0)),  // sigmoid(0) = 0.5
+		1.0 / (1.0 + math.Exp(-1)), // sigmoid(1) ≈ 0.7310586
 	}
 	for i, v := range mat.Row(nil, 0, result) {
 		if !floatEquals(v, expected[i], 1e-6) {

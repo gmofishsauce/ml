@@ -4,9 +4,10 @@ package main
 
 import (
 	"fmt"
-	"gonum.org/v1/gonum/mat"
 	"math/rand"
 	"os"
+
+	"gonum.org/v1/gonum/mat"
 )
 
 // Number of iterations to run
@@ -84,23 +85,15 @@ func Q_learn(results []int) {
 		var current bitboard = 0 // "initialize S"
 
 		for player := X; !isFinal(current); player = other(player) {
-			// We just switched (or initialized) the players, so the quality of the current
-			// position is based on the other player's move choice.
 			position := current
-			qOfS := QofS(position, other(player))
-			action, _ := choose(current, player, epsilon) // "choose A from S"
-			current = current | action                    // "take action A, observe R, S'"
+			action, _ := choose(current, player, epsilon)
+			current = current | action
 			r := reward(current, player)
 
-			// LR is learning rate, gamma is discount rate, Q(S, A) is saved above
-			// max_a(Q(S', a)) is found by choose() with epsilon of 0.0
-			// _, maxQ := choose(current, player, 0.0)
-			// Q(S, A) := Q(S, A) + LR * [ r + gamma * (max_a(Q(S', a))) - Q(S, A) ]
-			// LR is in the NN and the Q(S, A) part is built into the NN (I think...)
-
+			// For self-play with a single value network, the value for the next state is from the other player's perspective, so negate it.
 			_, maxQ := choose(current, other(player), 0.0)
 			targetQ := make([]float64, 1)
-			targetQ[0] = r + gamma*(1-maxQ) - qOfS
+			targetQ[0] = r + gamma*(-maxQ)
 			nn.Learn(bitboardToFloatVec(position), targetQ)
 		}
 
@@ -153,13 +146,25 @@ func status(position bitboard) int {
 
 func reward(position bitboard, player int) float64 {
 	s := status(position)
-	if s == StatusRunning || s == StatusDraw {
-		return 0.5
+	switch s {
+	case StatusRunning:
+		return 0
+	case StatusDraw:
+		return 0
+	case StatusXWin:
+		if player == X {
+			return 1
+		} else {
+			return -1
+		}
+	case StatusOWin:
+		if player == O {
+			return 1
+		} else {
+			return -1
+		}
 	}
-	if s == StatusXWin {
-		return 1
-	}
-	return 0 // O win
+	return 0
 }
 
 func getLegalMoves(current bitboard) []int {
@@ -178,8 +183,6 @@ func getRandomMove(current bitboard, player int) bitboard {
 	choices := getLegalMoves(current)
 	return (1 << choices[rand.Intn(len(choices))]) << shift[player]
 }
-
-// TODO XXX needs to return 0.0 and an empty bitboard when isFinal() is true.
 
 // Choose the next move. This function only chooses legal moves. For the X player,
 // we choose the maximum from the N QofS values. For the O player, we choose the
