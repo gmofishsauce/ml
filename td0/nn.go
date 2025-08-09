@@ -3,7 +3,6 @@
 package main
 
 import (
-	"fmt"
 	"gonum.org/v1/gonum/mat"
 	"math"
 	"math/rand"
@@ -63,92 +62,110 @@ func sigmoidDerivative(input *mat.Dense) *mat.Dense {
 }
 
 // Return a new mat.Dense that is the elementwise product
-func mulScalar(s float64, m *mat.Dense) *mat.Dense {
-	var result mat.Dense
-	result.Apply(func(i, j int, v float64) float64 {
-		return s * m.At(i, j)
-	}, m)
-	return &result
+func mulScalar(s float64, b *mat.Dense) *mat.Dense {
+	r, c := b.Dims()
+	for i := 0; i < r; i++ {
+		for j := 0; j < c; j++ {
+			b.Set(i, j, s*b.At(i, j))
+		}
+	}
+	return b
+}
+
+// Return a new mat.Dense that is the elementwise product
+func mulElements(a *mat.Dense, b *mat.Dense) *mat.Dense {
+	r, c := a.Dims()
+	var result *mat.Dense = mat.NewDense(r, c, nil)
+	for i := 0; i < r; i++ {
+		for j := 0; j < c; j++ {
+			result.Set(i, j, a.At(i,j)*b.At(i, j))
+		}
+	}
+	return result
 }
 
 // Return a new mat.Dense that is the product of the arguments
-func mult(a mat.Matrix, b mat.Matrix) *mat.Dense {
+func matmul(a mat.Matrix, b mat.Matrix) *mat.Dense {
 	var result mat.Dense
 	result.Mul(a, b)
 	return &result
 }
 
 // Return a new mat.Dense that is the elementwise sum of the arguments.
-// TODO figure out if this is necessary, i.e. a.Add(a, b) really fails.
 func add(a *mat.Dense, b *mat.Dense) *mat.Dense {
 	var result mat.Dense
 	result.Add(a, b)
 	return &result
 }
 
-// Evaluate the network with the given vector of inputs.
-// The input slice of float64 must have the dimension InputSize
-// The result is a slice of float64 of dimension OutputSize.
-func (nn *NN) Predict(in []float64) []float64 {
-	var input *mat.Dense = mat.NewDense(1, nn.InputSize, in)
-	hiddenLayerOutput := sigmoid(mult(input, nn.weightsInputHidden))
-	predictedOutput := sigmoid(mult(hiddenLayerOutput, nn.weightsHiddenOutput))
+func sub(a *mat.Dense, b *mat.Dense) *mat.Dense {
+	var result mat.Dense
+	result.Sub(a, b)
+	return &result
+}
 
-	r, c := predictedOutput.Dims()
-	if r != 1 || c != nn.OutputSize {
-		panic(fmt.Sprintf("Predict: result should be 1x%d, but is %dx%d\n", nn.OutputSize, r, c))
-	}
-	result := make([]float64, nn.OutputSize)
-	for j := 0; j < nn.OutputSize; j++ {
+func matFromSlice(in []float64) *mat.Dense {
+	return mat.NewDense(1, len(in), in)
+}
+
+func sliceFromMat(in *mat.Dense) []float64 {
+	return mat.Row(nil, 0, in)
+	/*
+	r, c := in.Dims()
+	result := make([]float64, c)
+	for j := 0; j < c; j++ {
 		result[j] = predictedOutput.At(0, j)
 	}
 	return result
+	*/
 }
 
-/*
-    # --- Forward Propagation ---
-    layer_0 = X                   # Input layer
-    layer_1 = sigmoid(np.dot(layer_0, synapse_0)) # Hidden layer's output
-    layer_2 = sigmoid(np.dot(layer_1, synapse_1)) # Output layer's output
+// Forward pass (predict) - internal interface taking mat.Dense pointers
+func (nn *NN) matPredict(input *mat.Dense) (hidden *mat.Dense, predicted *mat.Dense) {
+	hiddenLayerOutput := sigmoid(matmul(input, nn.weightsInputHidden))
+	predictedOutput := sigmoid(matmul(hiddenLayerOutput, nn.weightsHiddenOutput))
+	return hiddenLayerOutput, predictedOutput
+}
 
-    # --- Backpropagation ---
-    layer_2_error = y - layer_2 # mOutputError = goal - predictedOutput
-    layer_2_delta = layer_2_error * sigmoid_derivative(layer_2) # outputDelta.Mul(mOutputError, mOutput)
-    layer_1_error = layer_2_delta.dot(synapse_1.T)
-    layer_1_delta = layer_1_error * sigmoid_derivative(layer_1)
+// External interface - evaluate the network with the given vector of inputs.
+// The input slice of float64 must have the dimension InputSize
+// The result is a slice of float64 of dimension OutputSize.
+func (nn *NN) Predict(in []float64) (predicted []float64) {
+	input := matFromSlice(in)
+	r, c := input.Dims()
+	if r != 1 || c != nn.InputSize {
+		panic("Predict(): assertion 1")
+	}
+	
+	// The internal interface returns the result of the hidden layer in
+	// addition to the predicted output for use in training. This external
+	// interface just returns the predicted output.
+	_, predictedMat := nn.matPredict(input)
+	return sliceFromMat(predictedMat)
+}
 
-    # --- Weight Update ---
-    synapse_1 += learningRate * layer_1.T.dot(layer_2_delta)
-    synapse_0 += learningRate * layer_0.T.dot(layer_1_delta)
-*/
-
+// Back propagate the difference between the input and the goal
 func (nn *NN) Learn(in []float64, goal []float64) {
 	if len(in) != nn.InputSize {
 		panic("Learn(): assertion 1")
 	}
-	var input *mat.Dense = mat.NewDense(1, len(in), in)
-	hiddenLayerOutput := sigmoid(mult(input, nn.weightsInputHidden))
-	predictedOutput := sigmoid(mult(hiddenLayerOutput, nn.weightsHiddenOutput))
+	input := matFromSlice(in)
 
-	_, c := predictedOutput.Dims()
+	hiddenOutput, output := nn.matPredict(input)
+	_, c := output.Dims()
 	if len(goal) != c {
 		panic("Learn(): assertion 2")
 	}
 
-	outErr := make([]float64, c)
-	for j := 0; j < c; j++ {
-		outErr[j] = goal[j] - predictedOutput.At(0, j)
-	}
-	outputError := mat.NewDense(1, c, outErr)
-	outputDelta := mult(outputError, sigmoidDerivative(predictedOutput))
-	msgM("outputError", "", outputError)
-	msgM("outputDelta", "", outputDelta)
+	outputError := sub(matFromSlice(goal), output)
+	outputDelta := mulElements(outputError, sigmoidDerivative(output))
 
-	hiddenError := mult(outputDelta, nn.weightsHiddenOutput.T())
-	msgM("hiddenError", "", hiddenError)
-	msgM("hiddenLayerOutput", "", hiddenLayerOutput)
-	hiddenDelta := mult(hiddenError, sigmoidDerivative(hiddenLayerOutput))
+	hiddenError := matmul(outputDelta, nn.weightsHiddenOutput.T())
+	hiddenDelta := mulElements(hiddenError, sigmoidDerivative(hiddenOutput))
 
-	nn.weightsHiddenOutput = add(nn.weightsHiddenOutput, mulScalar(nn.learningRate, mult(hiddenLayerOutput.T(), outputDelta)))
-	nn.weightsInputHidden = add(nn.weightsInputHidden, mulScalar(nn.learningRate, mult(input.T(), hiddenDelta)))
+	hiddenOutputAdjust := matmul(hiddenOutput.T(), outputDelta)
+	inputHiddenAdjust := matmul(input.T(), hiddenDelta)
+
+	nn.weightsHiddenOutput = add(nn.weightsHiddenOutput, mulScalar(nn.learningRate, hiddenOutputAdjust))
+	nn.weightsInputHidden = add(nn.weightsInputHidden, mulScalar(nn.learningRate, inputHiddenAdjust))
 }
