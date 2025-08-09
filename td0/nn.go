@@ -11,13 +11,13 @@ import (
 // NN engine
 
 type NN struct {
-	InputSize int
+	InputSize  int
 	HiddenSize int
 	OutputSize int
 
 	learningRate float64
 
-	weightsInputHidden *mat.Dense
+	weightsInputHidden  *mat.Dense
 	weightsHiddenOutput *mat.Dense
 }
 
@@ -30,13 +30,13 @@ func makeNN(inputSize int, hiddenSize int, outputSize int) *NN {
 
 	data := make([]float64, nn.InputSize*nn.HiddenSize)
 	for i := range data {
-		data[i] = 0.1*rand.Float64()
+		data[i] = 0.1 * rand.Float64()
 	}
 	nn.weightsInputHidden = mat.NewDense(nn.InputSize, nn.HiddenSize, data)
 
 	data = make([]float64, nn.HiddenSize*nn.OutputSize)
 	for i := range data {
-		data[i] = 0.1*rand.Float64()
+		data[i] = 0.1 * rand.Float64()
 	}
 	nn.weightsHiddenOutput = mat.NewDense(nn.HiddenSize, nn.OutputSize, data)
 
@@ -56,7 +56,7 @@ func sigmoid(input *mat.Dense) *mat.Dense {
 func sigmoidDerivative(input *mat.Dense) *mat.Dense {
 	var result mat.Dense
 	result.Apply(func(i, j int, v float64) float64 {
-        return v * (1.0 - v)
+		return v * (1.0 - v)
 	}, input)
 	return &result
 }
@@ -78,7 +78,7 @@ func mulElements(a *mat.Dense, b *mat.Dense) *mat.Dense {
 	var result *mat.Dense = mat.NewDense(r, c, nil)
 	for i := 0; i < r; i++ {
 		for j := 0; j < c; j++ {
-			result.Set(i, j, a.At(i,j)*b.At(i, j))
+			result.Set(i, j, a.At(i, j)*b.At(i, j))
 		}
 	}
 	return result
@@ -111,12 +111,12 @@ func matFromSlice(in []float64) *mat.Dense {
 func sliceFromMat(in *mat.Dense) []float64 {
 	return mat.Row(nil, 0, in)
 	/*
-	r, c := in.Dims()
-	result := make([]float64, c)
-	for j := 0; j < c; j++ {
-		result[j] = predictedOutput.At(0, j)
-	}
-	return result
+		r, c := in.Dims()
+		result := make([]float64, c)
+		for j := 0; j < c; j++ {
+			result[j] = predictedOutput.At(0, j)
+		}
+		return result
 	*/
 }
 
@@ -136,7 +136,7 @@ func (nn *NN) Predict(in []float64) (predicted []float64) {
 	if r != 1 || c != nn.InputSize {
 		panic("Predict(): assertion 1")
 	}
-	
+
 	// The internal interface returns the result of the hidden layer in
 	// addition to the predicted output for use in training. This external
 	// interface just returns the predicted output.

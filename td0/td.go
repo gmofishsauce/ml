@@ -19,6 +19,7 @@ const NumGames = 10
 // sort "one hot": bits 0..8 are X moves, 16..24 are
 // O moves, and neither bit set means an empty square.
 type bitboard uint32
+
 const NumSquares = 9
 
 const X = 0
@@ -37,14 +38,15 @@ const (
 	StatusDraw
 )
 
-var shift[2] int = [2]int{0, 16}
-var mask[2] bitboard  = [2]bitboard{ALL<<shift[X], ALL<<shift[O]}
-var name[2] string = [2]string{"X", "O"}
+var shift [2]int = [2]int{0, 16}
+var mask [2]bitboard = [2]bitboard{ALL << shift[X], ALL << shift[O]}
+var name [2]string = [2]string{"X", "O"}
 
 // Hyperparameters
 const InputSize = 18
 const HiddenSize = 18
-var epsilon float64 = 0.5 // not very large
+
+var epsilon float64 = 0.5        // not very large
 var epsilon_decay float64 = 0.75 // very rapid
 var gamma float64 = 0.99
 
@@ -79,15 +81,15 @@ func main() {
 
 func Q_learn(results []int) {
 	for i := 0; i < NumGames; i++ {
-		var current bitboard = 0                                        // "initialize S"
+		var current bitboard = 0 // "initialize S"
 
 		for player := X; !isFinal(current); player = other(player) {
 			// We just switched (or initialized) the players, so the quality of the current
 			// position is based on the other player's move choice.
 			position := current
 			qOfS := QofS(position, other(player))
-			action, _ := choose(current, player, epsilon)               // "choose A from S"
-			current = current|action                                    // "take action A, observe R, S'"
+			action, _ := choose(current, player, epsilon) // "choose A from S"
+			current = current | action                    // "take action A, observe R, S'"
 			r := reward(current, player)
 
 			// LR is learning rate, gamma is discount rate, Q(S, A) is saved above
@@ -98,7 +100,7 @@ func Q_learn(results []int) {
 
 			_, maxQ := choose(current, other(player), 0.0)
 			targetQ := make([]float64, 1)
-			targetQ[0] = r + gamma * (1 - maxQ) - qOfS
+			targetQ[0] = r + gamma*(1-maxQ) - qOfS
 			nn.Learn(bitboardToFloatVec(position), targetQ)
 		}
 
@@ -109,7 +111,7 @@ func Q_learn(results []int) {
 	}
 }
 
-var unshiftedWinningPositions = []bitboard {
+var unshiftedWinningPositions = []bitboard{
 	0b000000111, 0b000111000, 0b111000000,
 	0b001001001, 0b010010010, 0b100100100,
 	0b100010001, 0b001010100,
@@ -122,13 +124,13 @@ func isFinal(position bitboard) bool {
 }
 
 func status(position bitboard) int {
-	for _, winner := range(unshiftedWinningPositions) {
-		winmask := winner<<shift[X]
+	for _, winner := range unshiftedWinningPositions {
+		winmask := winner << shift[X]
 		if position&winmask == winmask {
 			//msg("X win")
 			return StatusXWin
 		}
-		winmask = winner<<shift[O]
+		winmask = winner << shift[O]
 		if position&winmask == winmask {
 			//msg("O win")
 			return StatusOWin
@@ -174,7 +176,7 @@ func getLegalMoves(current bitboard) []int {
 
 func getRandomMove(current bitboard, player int) bitboard {
 	choices := getLegalMoves(current)
-	return (1<<choices[rand.Intn(len(choices))]) << shift[player]
+	return (1 << choices[rand.Intn(len(choices))]) << shift[player]
 }
 
 // TODO XXX needs to return 0.0 and an empty bitboard when isFinal() is true.
@@ -202,8 +204,8 @@ func choose(current bitboard, player int, epsilon float64) (bitboard, float64) {
 
 	var move bitboard
 	for i := 0; i < 9; i++ {
-		candidate := bitboard((1<<i)<<shift[player])
-		blocker := bitboard((1<<i)<<shift[other(player)])
+		candidate := bitboard((1 << i) << shift[player])
+		blocker := bitboard((1 << i) << shift[other(player)])
 		value := 0.0
 		if candidate&current == 0 && blocker&current == 0 { // legal
 			value = QofS(current|candidate, player)
@@ -225,7 +227,7 @@ func choose(current bitboard, player int, epsilon float64) (bitboard, float64) {
 func bitboardToFloatVec(position bitboard) []float64 {
 	// prepare the input, an N-hot vector with 1.0 where there is either
 	// an X or an O and 0.0 otherwise.
-	packed := (position&mask[X]) | (position&mask[O])>>7
+	packed := (position & mask[X]) | (position&mask[O])>>7
 	var result []float64 = make([]float64, 2*NumSquares)
 	for i := 0; i < 2*NumSquares; i++ {
 		if packed&(1<<i) != 0 {
@@ -257,7 +259,7 @@ func fatal(format string, a ...any) {
 	if format[len(format)-1] != '\n' {
 		format += "\n"
 	}
-    fmt.Fprintf(os.Stderr, format, a...)
+	fmt.Fprintf(os.Stderr, format, a...)
 	os.Exit(1)
 }
 
@@ -273,7 +275,7 @@ func msg(format string, a ...any) {
 	if format[len(format)-1] != '\n' {
 		format += "\n"
 	}
-    fmt.Fprintf(os.Stderr, format, a...)
+	fmt.Fprintf(os.Stderr, format, a...)
 }
 
 // print a matrix m with the given label and per-element format
@@ -309,4 +311,3 @@ func display(c bitboard) {
 	msg(" %s | %s | %s ", mark(c, 6), mark(c, 7), mark(c, 8))
 	msg("")
 }
-
