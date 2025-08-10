@@ -11,7 +11,7 @@ import (
 )
 
 // Number of iterations to run
-const NumGames = 10
+const NumGames = 200000
 
 // Tic-tac-toe game with TD(0) reinforcement learning
 //
@@ -45,10 +45,10 @@ var name [2]string = [2]string{"X", "O"}
 
 // Hyperparameters
 const InputSize = 18
-const HiddenSize = 18
+const HiddenSize = 32
 
-var epsilon float64 = 0.5        // not very large
-var epsilon_decay float64 = 0.75 // very rapid
+var epsilon float64 = 0.2        // more exploration
+var epsilon_decay float64 = 0.995 // slower decay
 var gamma float64 = 0.99
 
 var nn *NN = makeNN(18, HiddenSize, 1)
@@ -80,13 +80,20 @@ func main() {
 	msg("done")
 }
 
+var nIter int = 0
+var nPrint int = 5000
+
 func Q_learn(results []int) {
+	var action bitboard
+	var minmax float64
+
 	for i := 0; i < NumGames; i++ {
+		nIter++
 		var current bitboard = 0 // "initialize S"
 
 		for player := X; !isFinal(current); player = other(player) {
 			position := current
-			action, _ := choose(current, player, epsilon)
+			action, minmax = choose(current, player, epsilon)
 			current = current | action
 			r := reward(current, player)
 
@@ -101,6 +108,19 @@ func Q_learn(results []int) {
 		if epsilon > 0.001 {
 			epsilon *= epsilon_decay
 		}
+		if nIter%nPrint == 1 {
+			if nIter == 50001 {
+				results[0] = 0
+				results[1] = 0
+				results[2] = 0
+				results[3] = 0
+			}
+			msg("Iteration %d minmax %.3f (%d/%d/%d)",
+				nIter, minmax, results[1], results[2], results[3])
+			if minmax < 0.002 {
+				nn.learningRate /= 10.0
+			}
+		}
 	}
 }
 
@@ -112,7 +132,6 @@ var unshiftedWinningPositions = []bitboard{
 
 // Return true if no more plays are available or if there is a winner
 func isFinal(position bitboard) bool {
-	display(position)
 	return status(position) > 0
 }
 
