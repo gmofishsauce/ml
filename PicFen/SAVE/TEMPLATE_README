@@ -1,0 +1,10 @@
+These images are examples of piece icons used for matching.
+The were chopped from puzzle images (#307-312 from the book)
+There are images for each {piece, color, background color},
+so 6 x 2 x 2 = 24 images.
+
+Ideally they would be called e.g. rL.png (black rook on light square),
+RD.png (white rook on a dark square), etc., using upper and lower case
+for the piece names the way FEN strings do. But the Mac file system is
+case insensitive (although case preserving) so I had to prepend "W" or
+"B" to each file, e.g. BrL.png (black rook on light square), etc.

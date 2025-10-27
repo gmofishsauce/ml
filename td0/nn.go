@@ -112,14 +112,6 @@ func matFromSlice(in []float64) *mat.Dense {
 
 func sliceFromMat(in *mat.Dense) []float64 {
 	return mat.Row(nil, 0, in)
-	/*
-		r, c := in.Dims()
-		result := make([]float64, c)
-		for j := 0; j < c; j++ {
-			result[j] = predictedOutput.At(0, j)
-		}
-		return result
-	*/
 }
 
 // Forward pass (predict) - internal interface taking mat.Dense pointers
