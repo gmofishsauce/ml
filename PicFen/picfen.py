@@ -12,6 +12,9 @@ TEMPLATE_DIR = "templates/"
 # File name of scan
 SCAN_FILE = "page.jpg"
 
+# If true, print diagrams and templates, exit, don't do any analysis
+print_diagrams_and_templates = False
+
 # ------------------------------
 # 1. Load and preprocess page
 # ------------------------------
@@ -35,66 +38,110 @@ boxes = [cv2.boundingRect(c) for c in contours]
 boxes = sorted(boxes, key=lambda b: (b[1]//100, b[0]))
 print(f"boxes: {boxes}")
 
-# Print all six diagrams. The diagrams start with #307
-# in the book, so we call the files 307.png, etc.
-diagram_base = 307
+# The board images are surrounded by a border. The
+# size was estimated by trial and error.
+BORDER_WIDTH = 8
 
+# --------------------------------------
+# 3. Optional: print diagrams and templatess, exit
+# --------------------------------------
+
+if print_diagrams_and_templates:
+    # Print all six diagrams. The diagrams start with #307
+    # in the book, so we call the files 307.png, etc.
+    diagram_base = 307
+
+    for diagram_number in range(6):
+        x, y, w, h = boxes[diagram_number]
+        diagram = page[y+BORDER_WIDTH:y+h-BORDER_WIDTH, x+BORDER_WIDTH:x+w-BORDER_WIDTH]
+        # cv2.imwrite(f"{diagram_base+diagram_number}.png", diagram)
+        # print(f"wrote {diagram_base+diagram_number}.png")
+
+        # Detect internal 8x8 grid
+        # Assume clean rectangular board
+        H, W = diagram.shape
+        square_h = H // 8
+        square_w = W // 8
+
+        # write template files
+        for row in range(8):
+            for col in range(8):
+                y0, y1 = row*square_h, (row+1)*square_h
+                x0, x1 = col*square_w, (col+1)*square_w
+                cell = diagram[y0:y1, x0:x1]
+                cv2.imwrite(f"templates/{diagram_number}-{row}-{col}.png", cell)
+        print("wrote 64 template files")
+        diagram_number += 1
+    # templates written - done.
+    sys.exit(5)
+
+# ------------------------------
+# 4. Load templates
+# ------------------------------
+PIECES = ["WP","WN","WB","WR","WQ","WK","Bp","Bn","Bb","Br","Bq","Bk"]
+BACKGROUNDS = ["L", "D"]
+templates = {}
+tmpl_index = 0
+for p in PIECES:
+    for s in BACKGROUNDS:
+        tmpl = cv2.imread(f"{TEMPLATE_DIR}/{p}{s}.png", cv2.IMREAD_GRAYSCALE)
+        #templates[f"{p}{s}"] = cv2.resize(tmpl, (square_w, square_h))
+        templates[f"{p}{s}"] = tmpl
+        tmpl_index += 1
+
+tmpl = cv2.imread(f"{TEMPLATE_DIR}/XxD.png", cv2.IMREAD_GRAYSCALE)
+templates["XxD"] = tmpl
+tmpl_index += 1
+
+tmpl = cv2.imread(f"{TEMPLATE_DIR}/XxL.png", cv2.IMREAD_GRAYSCALE)
+templates["XxL"] = tmpl
+tmpl_index += 1
+
+# ------------------------------
+# 5. Classify each square
+# ------------------------------
 for diagram_number in range(6):
-    BORDER_WIDTH = 8
     x, y, w, h = boxes[diagram_number]
     diagram = page[y+BORDER_WIDTH:y+h-BORDER_WIDTH, x+BORDER_WIDTH:x+w-BORDER_WIDTH]
-    # cv2.imwrite(f"{diagram_base+diagram_number}.png", diagram)
-    # print(f"wrote {diagram_base+diagram_number}.png")
-
-    # ------------------------------
-    # 3. Detect internal 8x8 grid
-    # ------------------------------
-    # Assume clean rectangular board
     H, W = diagram.shape
     square_h = H // 8
     square_w = W // 8
 
-    # write template files
+    board = [["" for _ in range(8)] for _ in range(8)]
+    scores = [[0.0 for _ in range(8)] for _ in range(8)]
+    
     for row in range(8):
         for col in range(8):
             y0, y1 = row*square_h, (row+1)*square_h
             x0, x1 = col*square_w, (col+1)*square_w
             cell = diagram[y0:y1, x0:x1]
-            cv2.imwrite(f"templates/{diagram_number}-{row}-{col}.png", cell)
-    print("wrote 64 template files")
-    diagram_number += 1
+
+            best_piece = ""
+            # best_score = 0.0
+            best_score = 1.0
+
+            for piece, tmpl in templates.items():
+                #res = cv2.matchTemplate(cell, tmpl, cv2.TM_CCOEFF_NORMED)
+                res = cv2.matchTemplate(cell, tmpl, cv2.TM_SQDIFF_NORMED)
+                # _, score, _, _ = cv2.minMaxLoc(res)
+                score, _, _, _ = cv2.minMaxLoc(res)
+
+                # print(f"{piece} = {score:.2f}")
+
+                if score < best_score:
+                    best_piece, best_score = piece, score
+
+            # print('')
+            board[row][col] = best_piece
+            scores[row][col] = best_score
+
+    for row in range(8):
+        for col in range(8):
+            print(f"{board[row][col]}({scores[row][col]:.2f})", end=' ')
+        print("")
+    print("")
 
 sys.exit(5)
-# ------------------------------
-# 4. Load templates
-# ------------------------------
-PIECES = ["P","N","B","R","Q","K","p","n","b","r","q","k"]
-templates = {}
-for p in PIECES:
-    tmpl = cv2.imread(f"{TEMPLATE_DIR}/{p}.png", cv2.IMREAD_GRAYSCALE)
-    templates[p] = cv2.resize(tmpl, (square_w, square_h))
-
-# ------------------------------
-# 5. Classify each square
-# ------------------------------
-board = [["" for _ in range(8)] for _ in range(8)]
-for row in range(8):
-    for col in range(8):
-        y0, y1 = row*square_h, (row+1)*square_h
-        x0, x1 = col*square_w, (col+1)*square_w
-        cell = diagram[y0:y1, x0:x1]
-
-        best_piece = ""
-        best_score = 0.0
-
-        for piece, tmpl in templates.items():
-            res = cv2.matchTemplate(cell, tmpl, cv2.TM_CCOEFF_NORMED)
-            _, score, _, _ = cv2.minMaxLoc(res)
-            if score > best_score:
-                best_piece, best_score = piece, score
-
-        if best_score > 0.55:  # tune threshold
-            board[row][col] = best_piece
 
 # ------------------------------
 # 6. Convert to FEN
